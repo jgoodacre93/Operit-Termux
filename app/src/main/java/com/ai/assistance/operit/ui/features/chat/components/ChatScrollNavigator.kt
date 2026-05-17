@@ -10,6 +10,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -27,8 +28,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material3.Icon
@@ -43,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -65,6 +69,8 @@ import com.ai.assistance.operit.data.model.ChatMessageLocatorPreview
 import com.ai.assistance.operit.ui.features.chat.components.lazy.LazyListState as ChatLazyListState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -186,9 +192,17 @@ internal fun ChatScrollNavigator(
         enter = fadeIn(animationSpec = tween(180)) + slideInHorizontally(initialOffsetX = { it / 2 }),
         exit = fadeOut(animationSpec = tween(120)) + slideOutHorizontally(targetOffsetX = { it / 2 }),
     ) {
-        val bubbleColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f)
+        val bubbleColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f)
         val anchorLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
         val anchorDotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+        val navigatorBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.12f)
+        val navigatorShape =
+            RoundedCornerShape(
+                topStart = 14.dp,
+                bottomStart = 14.dp,
+                topEnd = 10.dp,
+                bottomEnd = 10.dp,
+            )
         val progressTotalCount =
             locatorEntries.size.takeIf { it > 0 } ?: chatHistory.size
         val progressIndex =
@@ -209,22 +223,12 @@ internal fun ChatScrollNavigator(
                 },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                shape =
-                    RoundedCornerShape(
-                        topStart = 14.dp,
-                        bottomStart = 14.dp,
-                        topEnd = 10.dp,
-                        bottomEnd = 10.dp,
-                    ),
-                color = bubbleColor,
-                tonalElevation = 3.dp,
-                shadowElevation = 4.dp,
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.12f),
-                    ),
+            Box(
+                modifier =
+                    Modifier
+                        .clip(navigatorShape)
+                        .background(bubbleColor)
+                        .border(1.dp, navigatorBorderColor, navigatorShape),
             ) {
                 Box(
                     modifier =
@@ -300,23 +304,39 @@ internal fun ChatScrollNavigator(
     scrollState: ScrollState,
     messageAnchors: Map<Long, ChatScrollMessageAnchor>,
     viewportHeightPx: Int,
+    autoScrollToBottom: Boolean,
+    hasNewerDisplayHistory: Boolean = false,
     loadLocatorEntries: (suspend (String) -> List<ChatMessageLocatorPreview>)? = null,
+    onRequestLatestMessages: (() -> Unit)? = null,
+    onAutoScrollToBottomChange: ((Boolean) -> Unit)? = null,
     onJumpToMessageTimestamp: ((Long) -> Unit)? = null,
     onJumpToMessage: (Int) -> Unit,
     onToggleFavoriteMessage: ((Long, Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (chatHistory.size <= 1 || viewportHeightPx <= 0) {
+    if (chatHistory.isEmpty() || viewportHeightPx <= 0) {
         return
     }
 
     val isDragged by scrollState.interactionSource.collectIsDraggedAsState()
     val currentIsDragged by rememberUpdatedState(isDragged)
+    val coroutineScope = rememberCoroutineScope()
     var showNavigatorChip by remember { mutableStateOf(false) }
+    var showScrollToBottomAction by remember { mutableStateOf(false) }
     var userScrollSessionActive by remember { mutableStateOf(false) }
     var showLocatorDialog by remember { mutableStateOf(false) }
     var currentMessageIndex by remember(chatHistory) {
         mutableStateOf(chatHistory.lastIndex.takeIf { it >= 0 })
+    }
+    val currentAutoScrollToBottom by rememberUpdatedState(autoScrollToBottom)
+    val currentHasNewerDisplayHistory by rememberUpdatedState(hasNewerDisplayHistory)
+    val currentOnRequestLatestMessages by rememberUpdatedState(onRequestLatestMessages)
+    val currentOnAutoScrollToBottomChange by rememberUpdatedState(onAutoScrollToBottomChange)
+
+    LaunchedEffect(autoScrollToBottom) {
+        if (autoScrollToBottom) {
+            showScrollToBottomAction = false
+        }
     }
 
     LaunchedEffect(isDragged) {
@@ -361,6 +381,32 @@ internal fun ChatScrollNavigator(
         }
     }
 
+    LaunchedEffect(scrollState) {
+        var lastPosition = scrollState.value
+        snapshotFlow { scrollState.value }
+            .distinctUntilChanged()
+            .collectLatest { currentPosition ->
+                if (scrollState.isScrollInProgress) {
+                    val movedAwayFromBottom = currentPosition < lastPosition
+                    if (movedAwayFromBottom) {
+                        if (currentAutoScrollToBottom && currentIsDragged) {
+                            currentOnAutoScrollToBottomChange?.invoke(false)
+                            showScrollToBottomAction = true
+                        }
+                    } else {
+                        val isAtBottom =
+                            scrollState.value >= scrollState.maxValue &&
+                                !currentHasNewerDisplayHistory
+                        if (isAtBottom && !currentAutoScrollToBottom) {
+                            currentOnAutoScrollToBottomChange?.invoke(true)
+                            showScrollToBottomAction = false
+                        }
+                    }
+                }
+                lastPosition = currentPosition
+            }
+    }
+
     val activeMessageIndex = currentMessageIndex
     val activeMessageTimestamp = activeMessageIndex?.let { chatHistory.getOrNull(it)?.timestamp }
     var locatorEntries by remember(currentChatId) { mutableStateOf<List<ChatMessageLocatorPreview>>(emptyList()) }
@@ -393,16 +439,25 @@ internal fun ChatScrollNavigator(
         activeMessageTimestamp?.let { timestamp ->
             locatorEntries.indexOfFirst { it.timestamp == timestamp }.takeIf { it >= 0 }
         }
+    val shouldShowNavigatorControl = activeMessageIndex != null && showNavigatorChip
 
     AnimatedVisibility(
-        visible = showNavigatorChip && activeMessageIndex != null,
+        visible = shouldShowNavigatorControl,
         modifier = modifier,
         enter = fadeIn(animationSpec = tween(180)) + slideInHorizontally(initialOffsetX = { it / 2 }),
         exit = fadeOut(animationSpec = tween(120)) + slideOutHorizontally(targetOffsetX = { it / 2 }),
     ) {
-        val bubbleColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.56f)
+        val bubbleColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.58f)
         val anchorLineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
         val anchorDotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
+        val navigatorBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.12f)
+        val navigatorShape =
+            RoundedCornerShape(
+                topStart = 14.dp,
+                bottomStart = 14.dp,
+                topEnd = 10.dp,
+                bottomEnd = 10.dp,
+            )
         val progressTotalCount =
             locatorEntries.size.takeIf { it > 0 } ?: chatHistory.size
         val progressIndex =
@@ -414,74 +469,112 @@ internal fun ChatScrollNavigator(
                 (progressIndex.toFloat() / (progressTotalCount - 1).toFloat()).coerceIn(0f, 1f)
             }
 
-        Row(
-            modifier =
-                Modifier.clickable {
-                    showLocatorDialog = true
-                    showNavigatorChip = false
-                    userScrollSessionActive = false
-                },
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.size(width = 34.dp, height = 114.dp),
         ) {
-            Surface(
-                shape =
-                    RoundedCornerShape(
-                        topStart = 14.dp,
-                        bottomStart = 14.dp,
-                        topEnd = 10.dp,
-                        bottomEnd = 10.dp,
-                    ),
-                color = bubbleColor,
-                tonalElevation = 3.dp,
-                shadowElevation = 4.dp,
-                border =
-                    BorderStroke(
-                        width = 1.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.12f),
-                    ),
-            ) {
-                Box(
+            if (showNavigatorChip) {
+                Row(
                     modifier =
                         Modifier
-                            .width(20.dp)
-                            .height(58.dp)
-                            .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center,
+                            .align(Alignment.CenterStart)
+                            .offset(x = 4.5.dp)
+                            .clickable {
+                                showLocatorDialog = true
+                                showNavigatorChip = false
+                                userScrollSessionActive = false
+                            },
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Canvas(modifier = Modifier.size(width = 8.dp, height = 34.dp)) {
-                        val centerX = size.width / 2f
-                        val topY = 2.dp.toPx()
-                        val bottomY = size.height - 2.dp.toPx()
-                        val dotCenterY = topY + (bottomY - topY) * progress
-                        drawLine(
-                            color = anchorLineColor,
-                            start = Offset(centerX, topY),
-                            end = Offset(centerX, bottomY),
-                            strokeWidth = 1.5.dp.toPx(),
-                        )
-                        drawCircle(
-                            color = anchorDotColor,
-                            radius = 3.dp.toPx(),
-                            center = Offset(centerX, dotCenterY),
-                        )
+                    Box(
+                        modifier =
+                            Modifier
+                                .clip(navigatorShape)
+                                .background(bubbleColor)
+                                .border(1.dp, navigatorBorderColor, navigatorShape),
+                    ) {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .width(20.dp)
+                                    .height(58.dp)
+                                    .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Canvas(modifier = Modifier.size(width = 8.dp, height = 34.dp)) {
+                                val centerX = size.width / 2f
+                                val topY = 2.dp.toPx()
+                                val bottomY = size.height - 2.dp.toPx()
+                                val dotCenterY = topY + (bottomY - topY) * progress
+                                drawLine(
+                                    color = anchorLineColor,
+                                    start = Offset(centerX, topY),
+                                    end = Offset(centerX, bottomY),
+                                    strokeWidth = 1.5.dp.toPx(),
+                                )
+                                drawCircle(
+                                    color = anchorDotColor,
+                                    radius = 3.dp.toPx(),
+                                    center = Offset(centerX, dotCenterY),
+                                )
+                            }
+                        }
+                    }
+
+                    Canvas(
+                        modifier =
+                            Modifier
+                                .offset(x = (-1).dp)
+                                .size(width = 9.dp, height = 18.dp),
+                    ) {
+                        val arrowPath =
+                            Path().apply {
+                                moveTo(0f, 0f)
+                                lineTo(size.width, size.height / 2f)
+                                lineTo(0f, size.height)
+                                close()
+                            }
+                        drawPath(path = arrowPath, color = bubbleColor)
                     }
                 }
             }
 
-            Canvas(
-                modifier =
-                    Modifier
-                        .offset(x = (-1).dp)
-                        .size(width = 9.dp, height = 18.dp),
+            AnimatedVisibility(
+                visible = showScrollToBottomAction,
+                enter = fadeIn(animationSpec = tween(120)),
+                exit = fadeOut(animationSpec = tween(120)),
             ) {
-                val arrowPath =
-                    Path().apply {
-                        moveTo(0f, 0f)
-                        lineTo(size.width, size.height / 2f)
-                        lineTo(0f, size.height)
-                        close()
+                Box(
+                    modifier =
+                        Modifier
+                            .size(24.dp)
+                            .align(Alignment.TopStart)
+                            .offset(x = 2.5.dp, y = 90.dp)
+                            .clip(CircleShape)
+                            .background(bubbleColor)
+                            .border(1.dp, navigatorBorderColor, CircleShape)
+                            .clickable {
+                                coroutineScope.launch {
+                                    if (currentHasNewerDisplayHistory) {
+                                        currentOnRequestLatestMessages?.invoke()
+                                    }
+                                    scrollState.animateScrollTo(scrollState.maxValue)
+                                }
+                                currentOnAutoScrollToBottomChange?.invoke(true)
+                                showScrollToBottomAction = false
+                            },
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = stringResource(R.string.history_scroll_to_bottom),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.92f),
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
-                drawPath(path = arrowPath, color = bubbleColor)
+                }
             }
         }
     }

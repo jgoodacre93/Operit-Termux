@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -842,22 +841,6 @@ fun ChatScreenContent(
                 }
             )
         }
-
-        // Scroll to bottom button
-        ScrollToBottomButton(
-            scrollState = scrollState,
-            coroutineScope = coroutineScope,
-            autoScrollToBottom = autoScrollToBottom,
-            hasNewerDisplayHistory = hasNewerDisplayHistory,
-            onRequestLatestMessages = {
-                actualViewModel.showLatestMessagesForCurrentChat()
-            },
-            onAutoScrollToBottomChange = onAutoScrollToBottomChange,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = bottomInset + 16.dp)
-        )
-
 
         // 导出平台选择对话框
         if (showExportPlatformDialog) {

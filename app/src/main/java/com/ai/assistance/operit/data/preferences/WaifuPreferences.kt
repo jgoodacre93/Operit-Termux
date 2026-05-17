@@ -40,7 +40,7 @@ class WaifuPreferences private constructor(private val context: Context) {
 
         // Default value for Waifu Mode
         const val DEFAULT_ENABLE_WAIFU_MODE = false
-        const val DEFAULT_WAIFU_CHAR_DELAY = 500 // 500ms per character (2 chars per second)
+        const val DEFAULT_WAIFU_CHAR_DELAY = 250 // 250ms per character (4 chars per second)
         const val DEFAULT_WAIFU_REMOVE_PUNCTUATION = false // 默认保留标点符号
         const val DEFAULT_WAIFU_ENABLE_EMOTICONS = false // 默认不启用表情包
         const val DEFAULT_WAIFU_ENABLE_SELFIE = false // 默认不启用自拍功能

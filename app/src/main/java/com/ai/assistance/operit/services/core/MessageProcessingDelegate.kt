@@ -912,6 +912,7 @@ class MessageProcessingDelegate(
                 // 检查是否启用waifu模式来决定是否显示流式过程
                 val waifuPreferences = WaifuPreferences.getInstance(context)
                 isWaifuModeEnabled = waifuPreferences.enableWaifuModeFlow.first()
+                val waifuCharDelay = waifuPreferences.waifuCharDelayFlow.first()
                 val waifuRemovePunctuation =
                     if (isWaifuModeEnabled) {
                         waifuPreferences.waifuRemovePunctuationFlow.first()
@@ -1067,9 +1068,10 @@ class MessageProcessingDelegate(
                             val waifuSegmentsJob =
                                 if (isWaifuModeEnabled) {
                                     launch {
-                                        WaifuMessageProcessor.streamSegments(
+                                        WaifuMessageProcessor.streamSegmentsWithTypingQueue(
                                             sourceStream = sharedCharStream,
-                                            removePunctuation = waifuRemovePunctuation
+                                            removePunctuation = waifuRemovePunctuation,
+                                            charDelayMs = waifuCharDelay
                                         ).collect { segment ->
                                             emitWaifuSegment(segment)
                                         }

@@ -60,7 +60,7 @@ private fun buildCreationPrompt(
         appendLine(packageRuleLine)
         appendLine("把 skills 里的 types 覆盖复制到开发目录。")
         appendLine("尽量用终端，优先写 ts 和 js，再编译出最终 js。tsconfig 参考 examples。")
-        appendLine("示范做两个，第二个用自定义布局。")
+        appendLine("为了方便二次开发，打包需要把 ts 部分和 tsconfig 打包进去。")
         appendLine("需求:")
         append(requirement.trim())
     }

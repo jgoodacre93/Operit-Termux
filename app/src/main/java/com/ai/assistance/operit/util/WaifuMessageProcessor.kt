@@ -1,13 +1,18 @@
 package com.ai.assistance.operit.util
 
 import android.content.Context
+import android.os.SystemClock
 import com.ai.assistance.operit.data.preferences.ActivePromptManager
 import com.ai.assistance.operit.data.repository.CustomEmojiRepository
 import com.ai.assistance.operit.util.markdown.MarkdownProcessorType
 import com.ai.assistance.operit.util.stream.Stream
 import com.ai.assistance.operit.util.stream.stream
 import com.ai.assistance.operit.util.streamnative.nativeMarkdownSplitByBlock
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 
@@ -131,6 +136,59 @@ object WaifuMessageProcessor {
         }
 
         session.collectFinalSegments(renderableBuffer.toString()).forEach { emit(it) }
+    }
+
+    fun streamSegmentsWithTypingQueue(
+        sourceStream: Stream<String>,
+        removePunctuation: Boolean = false,
+        charDelayMs: Int,
+    ): Stream<String> = stream {
+        coroutineScope {
+            val segmentQueue = Channel<String>(Channel.UNLIMITED)
+            val producerJob = launch {
+                try {
+                    streamSegments(
+                        sourceStream = sourceStream,
+                        removePunctuation = false,
+                    ).collect { segment ->
+                        val queuedSegment =
+                            if (removePunctuation) {
+                                removeSentenceEndPunctuation(segment)
+                            } else {
+                                segment
+                            }
+                        if (queuedSegment.isNotBlank()) {
+                            segmentQueue.send(queuedSegment)
+                        }
+                    }
+                } finally {
+                    segmentQueue.close()
+                }
+            }
+
+            var nextSendAtMs = 0L
+            for (segment in segmentQueue) {
+                val waitMs = nextSendAtMs - SystemClock.elapsedRealtime()
+                if (waitMs > 0L) {
+                    delay(waitMs)
+                }
+
+                emit(segment)
+                nextSendAtMs =
+                    SystemClock.elapsedRealtime() + segment.length.toLong() * charDelayMs.toLong()
+            }
+
+            producerJob.join()
+        }
+    }
+
+    private fun removeSentenceEndPunctuation(sentence: String): String {
+        val trimmed = sentence.trim()
+        return if (trimmed.endsWith("...")) {
+            trimmed
+        } else {
+            trimmed.replace(Regex("[。！？.!?]+$"), "").trim()
+        }
     }
     
     /**

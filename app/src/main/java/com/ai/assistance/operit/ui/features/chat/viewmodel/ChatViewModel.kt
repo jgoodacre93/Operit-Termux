@@ -494,6 +494,7 @@ class ChatViewModel(private val context: Context) : ViewModel() {
                 apiEndpoint
             ) { initialized, currentApiKey, currentProviderType, currentApiEndpoint ->
                 initialized &&
+                    currentProviderType == ApiProviderType.DEEPSEEK &&
                     ApiProviderConfigs.requiresApiKey(
                         currentProviderType,
                         currentApiEndpoint

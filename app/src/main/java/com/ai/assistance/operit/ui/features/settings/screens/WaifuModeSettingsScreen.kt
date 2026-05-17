@@ -60,7 +60,7 @@ fun WaifuModeSettingsScreen(
     // 状态
     var showSaveSuccess by remember { mutableStateOf(false) }
     val isWaifuModeEnabled = waifuPreferences.enableWaifuModeFlow.collectAsState(initial = false).value
-    val charDelay = waifuPreferences.waifuCharDelayFlow.collectAsState(initial = 500).value
+    val charDelay = waifuPreferences.waifuCharDelayFlow.collectAsState(initial = 250).value
     val removePunctuation = waifuPreferences.waifuRemovePunctuationFlow.collectAsState(initial = false).value
     val enableEmoticons = waifuPreferences.waifuEnableEmoticonsFlow.collectAsState(initial = false).value
     val enableSelfie = waifuPreferences.waifuEnableSelfieFlow.collectAsState(initial = false).value
@@ -214,8 +214,7 @@ fun WaifuModeSettingsScreen(
                 }
             }
 
-            // 延迟时间配置（仅在waifu模式启用时显示）
-            if (isWaifuModeEnabled) {
+            // 延迟时间配置
                 Card(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -282,10 +281,8 @@ fun WaifuModeSettingsScreen(
                         )
                     }
                 }
-            }
 
-            // 标点符号配置（仅在waifu模式启用时显示）
-            if (isWaifuModeEnabled) {
+            // 标点符号配置
                 Card(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -324,10 +321,8 @@ fun WaifuModeSettingsScreen(
                         }
                     }
                 }
-            }
 
-            // Waifu提示词配置（仅在waifu模式启用时显示）
-            if (isWaifuModeEnabled) {
+            // Waifu提示词配置
                 var customPromptText by remember { mutableStateOf(waifuCustomPrompt) }
 
                 LaunchedEffect(waifuCustomPrompt) {
@@ -382,10 +377,8 @@ fun WaifuModeSettingsScreen(
                         )
                     }
                 }
-            }
 
-            // 表情包配置（仅在waifu模式启用时显示）
-            if (isWaifuModeEnabled) {
+            // 表情包配置
                 Card(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -469,10 +462,8 @@ fun WaifuModeSettingsScreen(
                         )
                     }
                 }
-            }
 
-            // 自拍功能配置（仅在waifu模式启用时显示）
-            if (isWaifuModeEnabled) {
+            // 自拍功能配置
                 Card(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -556,7 +547,6 @@ fun WaifuModeSettingsScreen(
                         }
                     }
                 }
-            }
 
             // 功能说明
             Card(

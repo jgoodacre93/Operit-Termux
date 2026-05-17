@@ -500,7 +500,11 @@ fun ChatArea(
             scrollState = scrollState,
             messageAnchors = messageAnchors,
             viewportHeightPx = viewportHeightPx,
+            autoScrollToBottom = autoScrollToBottom,
+            hasNewerDisplayHistory = hasNewerDisplayHistory,
             loadLocatorEntries = loadMessageLocatorEntries,
+            onRequestLatestMessages = onShowLatestDisplayWindow,
+            onAutoScrollToBottomChange = onAutoScrollToBottomChange,
             onToggleFavoriteMessage = onToggleFavoriteMessage,
             onJumpToMessageTimestamp = { targetTimestamp ->
                 pendingJumpToMessageTimestamp = targetTimestamp

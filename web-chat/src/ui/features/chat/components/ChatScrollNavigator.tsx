@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WebChatMessage, WebChatMessageLocatorPreview } from '../util/chatTypes';
-import { StarFilledIcon, StarOutlineIcon } from '../util/chatIcons';
+import { ChevronDownIcon, StarFilledIcon, StarOutlineIcon } from '../util/chatIcons';
 
 interface ChatScrollMessageAnchor {
   absoluteTopPx: number;
@@ -360,28 +360,37 @@ function ChatMessageLocatorDialog({
 }
 
 export function ChatScrollNavigator({
+  autoScrollToBottom,
   chatHistory,
   currentChatId,
+  hasNewerDisplayHistory = false,
   scrollElement,
   messageAnchors,
   viewportHeightPx,
   loadLocatorEntries,
+  onRequestLatestMessages,
+  onAutoScrollToBottomChange,
   onJumpToMessageTimestamp,
   onJumpToMessage,
   onToggleFavoriteMessage
 }: {
+  autoScrollToBottom: boolean;
   chatHistory: WebChatMessage[];
   currentChatId: string | null;
+  hasNewerDisplayHistory?: boolean;
   scrollElement: HTMLDivElement | null;
   messageAnchors: Map<number, ChatScrollMessageAnchor>;
   viewportHeightPx: number;
   loadLocatorEntries?: ((chatId: string) => Promise<WebChatMessageLocatorPreview[]>) | null;
+  onRequestLatestMessages?: (() => void) | null;
+  onAutoScrollToBottomChange: (value: boolean) => void;
   onJumpToMessageTimestamp?: ((timestamp: number) => Promise<boolean>) | null;
   onJumpToMessage: (index: number) => void;
   onToggleFavoriteMessage?: ((timestamp: number, isFavorite: boolean) => Promise<void>) | null;
 }) {
   const shouldRenderNavigator = chatHistory.length > 1 && viewportHeightPx > 0;
   const [showNavigatorChip, setShowNavigatorChip] = useState(false);
+  const [showScrollToBottomButton, setShowScrollToBottomButton] = useState(false);
   const [userScrollSessionActive, setUserScrollSessionActive] = useState(false);
   const [showLocatorDialog, setShowLocatorDialog] = useState(false);
   const [currentMessageIndex, setCurrentMessageIndex] = useState<number | null>(
@@ -393,8 +402,22 @@ export function ChatScrollNavigator({
   const firstMessageTimestamp = chatHistory[0]?.timestamp ?? null;
   const lastMessageTimestamp = chatHistory[chatHistory.length - 1]?.timestamp ?? null;
   const loadLocatorEntriesRef = useRef(loadLocatorEntries);
+  const autoScrollToBottomRef = useRef(autoScrollToBottom);
+  const hasNewerDisplayHistoryRef = useRef(hasNewerDisplayHistory);
+  const scrollToBottomInteractionActiveRef = useRef(false);
   const userScrollSessionActiveRef = useRef(userScrollSessionActive);
   const dragInteractionActiveRef = useRef(false);
+
+  useEffect(() => {
+    autoScrollToBottomRef.current = autoScrollToBottom;
+    if (autoScrollToBottom) {
+      setShowScrollToBottomButton(false);
+    }
+  }, [autoScrollToBottom]);
+
+  useEffect(() => {
+    hasNewerDisplayHistoryRef.current = hasNewerDisplayHistory;
+  }, [hasNewerDisplayHistory]);
 
   useEffect(() => {
     loadLocatorEntriesRef.current = loadLocatorEntries;
@@ -512,6 +535,78 @@ export function ChatScrollNavigator({
   }, [chatHistory, messageAnchors, scrollElement, shouldRenderNavigator, viewportHeightPx]);
 
   useEffect(() => {
+    if (!scrollElement) {
+      return;
+    }
+
+    let interactionTimeoutId = 0;
+    let lastPosition = scrollElement.scrollTop;
+
+    const setTransientInteractionActive = () => {
+      scrollToBottomInteractionActiveRef.current = true;
+      window.clearTimeout(interactionTimeoutId);
+      interactionTimeoutId = window.setTimeout(() => {
+        scrollToBottomInteractionActiveRef.current = false;
+      }, 180);
+    };
+    const beginPersistentInteraction = () => {
+      scrollToBottomInteractionActiveRef.current = true;
+      window.clearTimeout(interactionTimeoutId);
+    };
+    const endPersistentInteraction = () => {
+      scrollToBottomInteractionActiveRef.current = false;
+      window.clearTimeout(interactionTimeoutId);
+    };
+    const handleScroll = () => {
+      const currentPosition = scrollElement.scrollTop;
+      const movedAwayFromBottom = currentPosition < lastPosition;
+
+      if (movedAwayFromBottom) {
+        if (
+          autoScrollToBottomRef.current &&
+          scrollToBottomInteractionActiveRef.current
+        ) {
+          onAutoScrollToBottomChange(false);
+          setShowScrollToBottomButton(true);
+        }
+      } else {
+        const isAtBottom =
+          Math.abs(
+            scrollElement.scrollHeight - scrollElement.clientHeight - scrollElement.scrollTop
+          ) <= 1 && !hasNewerDisplayHistoryRef.current;
+        if (isAtBottom && !autoScrollToBottomRef.current) {
+          onAutoScrollToBottomChange(true);
+          setShowScrollToBottomButton(false);
+        }
+      }
+
+      lastPosition = currentPosition;
+    };
+
+    scrollElement.addEventListener('scroll', handleScroll, { passive: true });
+    scrollElement.addEventListener('wheel', setTransientInteractionActive, { passive: true });
+    scrollElement.addEventListener('pointerdown', beginPersistentInteraction, { passive: true });
+    scrollElement.addEventListener('pointerup', endPersistentInteraction, { passive: true });
+    scrollElement.addEventListener('pointercancel', endPersistentInteraction, { passive: true });
+    scrollElement.addEventListener('touchstart', beginPersistentInteraction, { passive: true });
+    scrollElement.addEventListener('touchend', endPersistentInteraction, { passive: true });
+    scrollElement.addEventListener('touchcancel', endPersistentInteraction, { passive: true });
+
+    return () => {
+      window.clearTimeout(interactionTimeoutId);
+      scrollToBottomInteractionActiveRef.current = false;
+      scrollElement.removeEventListener('scroll', handleScroll);
+      scrollElement.removeEventListener('wheel', setTransientInteractionActive);
+      scrollElement.removeEventListener('pointerdown', beginPersistentInteraction);
+      scrollElement.removeEventListener('pointerup', endPersistentInteraction);
+      scrollElement.removeEventListener('pointercancel', endPersistentInteraction);
+      scrollElement.removeEventListener('touchstart', beginPersistentInteraction);
+      scrollElement.removeEventListener('touchend', endPersistentInteraction);
+      scrollElement.removeEventListener('touchcancel', endPersistentInteraction);
+    };
+  }, [onAutoScrollToBottomChange, scrollElement]);
+
+  useEffect(() => {
     let cancelled = false;
     const currentLoadLocatorEntries = loadLocatorEntriesRef.current;
 
@@ -531,7 +626,8 @@ export function ChatScrollNavigator({
           setLocatorEntries(entries);
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('加载消息定位列表失败', error);
         if (!cancelled) {
           setLocatorEntries([]);
           setLocatorLoadFailed(true);
@@ -563,31 +659,59 @@ export function ChatScrollNavigator({
     activeGlobalMessageIndex >= 0 ? activeGlobalMessageIndex : currentMessageIndex ?? 0;
   const progress =
     progressTotalCount <= 1 ? 1 : Math.min(1, Math.max(0, progressIndex / (progressTotalCount - 1)));
+  const shouldShowNavigatorControl = currentMessageIndex != null && showNavigatorChip;
 
   return (
     <>
-      {showNavigatorChip && currentMessageIndex != null ? (
-        <button
-          className="chat-scroll-navigator-chip"
-          onClick={() => {
-            setShowLocatorDialog(true);
-            setShowNavigatorChip(false);
-            userScrollSessionActiveRef.current = false;
-            setUserScrollSessionActive(false);
-          }}
-          type="button"
-        >
-          <span className="chat-scroll-navigator-pill">
-            <span className="chat-scroll-navigator-track">
-              <span className="chat-scroll-navigator-line" />
-              <span
-                className="chat-scroll-navigator-dot"
-                style={{ top: `${2 + progress * 30}px` }}
-              />
-            </span>
-          </span>
-          <span className="chat-scroll-navigator-arrow" />
-        </button>
+      {shouldShowNavigatorControl ? (
+        <div className="chat-scroll-navigator-chip">
+          {showNavigatorChip ? (
+            <button
+              aria-label="跳转到消息"
+              className="chat-scroll-navigator-locator-button"
+              onClick={() => {
+                setShowLocatorDialog(true);
+                setShowNavigatorChip(false);
+                userScrollSessionActiveRef.current = false;
+                setUserScrollSessionActive(false);
+              }}
+              type="button"
+            >
+              <span className="chat-scroll-navigator-pill">
+                <span className="chat-scroll-navigator-track">
+                  <span className="chat-scroll-navigator-line" />
+                  <span
+                    className="chat-scroll-navigator-dot"
+                    style={{ top: `${2 + progress * 30}px` }}
+                  />
+                </span>
+              </span>
+              <span className="chat-scroll-navigator-arrow" />
+            </button>
+          ) : null}
+          {showScrollToBottomButton ? (
+            <button
+              aria-label="滚动到底部"
+              className="chat-scroll-navigator-bottom-button"
+              onClick={() => {
+                if (hasNewerDisplayHistory && onRequestLatestMessages) {
+                  onRequestLatestMessages();
+                }
+                if (scrollElement) {
+                  scrollElement.scrollTo({
+                    top: scrollElement.scrollHeight,
+                    behavior: 'smooth'
+                  });
+                }
+                onAutoScrollToBottomChange(true);
+                setShowScrollToBottomButton(false);
+              }}
+              type="button"
+            >
+              <ChevronDownIcon size={14} />
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {showLocatorDialog && activeMessageTimestamp != null ? (
